@@ -9,7 +9,7 @@
 
 Build a responsive game top-up storefront where customers can select a game, enter the correct player/account details, choose a denomination, pay, and track the order. Customers must be able to place an order without creating an account or signing in. Administrator access remains protected.
 
-The production system must not claim that a top-up is paid or delivered until the payment provider and supplier have confirmed the relevant events.
+The production system must not claim an order is paid until the payment gateway has confirmed it. After payment is verified, an administrator processes the game top-up manually and records the result.
 
 ## 2. User roles
 
@@ -28,7 +28,7 @@ The production system must not claim that a top-up is paid or delivered until th
 - Create, edit, activate/deactivate games and products.
 - Configure selling prices and, where supplier data exists, cost prices/margins.
 - Search and inspect orders; handle permitted cancellation/refund/manual review actions with an audit trail.
-- Configure and monitor payment-provider and supplier integrations without exposing API secrets in the browser.
+- Configure and monitor the payment-provider integration without exposing API secrets in the browser.
 - View integration errors and transaction logs.
 
 ## 3. Functional requirements
@@ -43,7 +43,7 @@ The production system must not claim that a top-up is paid or delivered until th
 - The input form is configured per game, not one generic field for every game.
 - Each field has a label, placeholder, required/optional setting, length/format validation, and help text.
 - Mobile Legends requires Player/User ID and Zone ID/Server as separate fields.
-- Other games use their supplier/publisher-required identifier format. Confirm exact fields from the chosen supplier before enabling live sales.
+- Other games use the identifier format required by the relevant game publisher/platform. Confirm exact fields before enabling live sales.
 - Show a confirmation step so the customer can verify destination details before paying.
 
 ### FR-03 — Product and denomination selection
@@ -62,19 +62,19 @@ The production system must not claim that a top-up is paid or delivered until th
 - Do not create a paid order merely because the customer returns to a success URL.
 
 ### FR-05 — Payment
-- Intended payment methods: QRIS, e-wallet, bank transfer/virtual account; pulsa is a possible future method only if supported by the selected provider.
-- Payment gateway is not yet selected. Midtrans, Xendit, or Duitku are candidates, subject to account approval, fees, supported methods, and API documentation.
+- Intended payment methods: QRIS, e-wallet, bank transfer/virtual account; availability depends on the selected payment gateway.
+- Payment gateway is not yet selected. Choose one provider (for example Midtrans, Xendit, or Duitku) based on account approval, fees, supported methods, and API documentation.
 - Verify payment through a signed/authenticated server-to-server webhook.
 - Handle pending, paid, expired, failed, cancelled, and refunded states.
 - Never store raw card credentials or payment secrets in frontend code.
 
-### FR-06 — Supplier fulfilment
-- Supplier is not yet selected. Digiflazz and other legitimate game-top-up distributors are candidates; verify game coverage, SKU mapping, price, balance, callback behavior, and terms before choosing.
-- Submit fulfilment only after verified successful payment (unless an explicitly approved alternative flow is designed).
-- Map each internal product to the supplier's product/SKU code.
-- Handle supplier pending, success, failed, timeout, and unknown states.
-- Use supplier reference IDs and idempotency/reconciliation to avoid duplicate delivery.
-- Provide a safe manual-review path when supplier status is ambiguous; do not blindly retry a potentially completed top-up.
+### FR-06 — Manual top-up processing
+- No third-party top-up supplier integration is required.
+- After a verified payment webhook, place the order in `PAID / WAITING_ADMIN` for manual processing.
+- Admin views the game, selected nominal, and customer-provided destination details, then performs the top-up through the operator's own authorized process.
+- Admin records processing notes and changes the order to `SUCCESS` only after confirming delivery, or `FAILED` with a reason if delivery cannot be completed.
+- Keep payment status separate from fulfilment status; an admin must never alter payment status without gateway evidence.
+- Record the admin identity, timestamp, and reason for every manual status change.
 
 ### FR-07 — Order status and tracking
 - Customer can look up an order using invoice/reference plus a verification factor (for example, a one-time token or matching contact detail) to prevent disclosure of another customer's order.
@@ -84,12 +84,12 @@ The production system must not claim that a top-up is paid or delivered until th
 
 ### FR-08 — Admin order management
 - Admin can filter/search by invoice, date, game, product, and status.
-- Admin can inspect customer-provided destination details, payment reference, supplier reference, and event history.
+- Admin can inspect customer-provided destination details, payment reference, processing notes, and event history.
 - Manual status changes must be permission-controlled and audited; an admin must not mark payment successful without evidence.
 - Refunds/cancellations must follow payment-provider and supplier capabilities.
 
 ### FR-09 — Reporting and configuration
-- Report order count, gross sales, fees, supplier cost, and estimated margin only where source data is available.
+- Report order count, gross sales, gateway fees, and manually entered operational costs only where source data is available.
 - Configure storefront content, game/product activation, prices, and integration settings.
 - Keep secrets server-side and mask them in the admin interface.
 
@@ -136,7 +136,7 @@ Phase 1 is complete when:
 - Customer, administrator, and system requirements are documented.
 - Guest checkout is explicitly defined as the default customer flow.
 - Game-specific input requirements are separated from product catalogue requirements.
-- Payment and supplier dependencies are clearly marked as unselected until verified.
+- Payment gateway is marked as unselected until verified; manual fulfilment is explicitly defined without supplier dependency.
 - Demo prices and manual fulfilment are clearly distinguished from production capabilities.
 - Open decisions are recorded without inventing supplier capabilities or live prices.
 
