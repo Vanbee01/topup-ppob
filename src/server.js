@@ -99,21 +99,16 @@ app.post('/api/orders', async (req, res) => {
   if (!product) return res.status(404).json({ error: 'Produk tidak ditemukan atau tidak aktif.' });
 
   const orderInvoice = invoice();
-  db.prepare("INSERT INTO orders(invoice,user_id,product_id,target,amount,status) VALUES(?,?,?,?,?,'PAYMENT_NOT_CONFIGURED')")
+  db.prepare("INSERT INTO orders(invoice,user_id,product_id,target,amount,status) VALUES(?,?,?,?,?,'WAITING_PAYMENT')")
     .run(orderInvoice, req.session.user?.id || null, product.id, target, product.price);
 
-  // The payment adapter deliberately throws until a real provider is configured.
-  try {
-    const charge = await payment.createPayment({ invoice: orderInvoice, amount: product.price });
-    return res.status(201).json({ invoice: orderInvoice, amount: product.price, payment: charge });
-  } catch (error) {
-    return res.status(202).json({
-      invoice: orderInvoice,
-      amount: product.price,
-      status: 'PAYMENT_NOT_CONFIGURED',
-      notice: 'Pesanan demo tersimpan. Gateway pembayaran belum aktif; jangan melakukan transfer.'
-    });
-  }
+  return res.status(201).json({
+    invoice: orderInvoice,
+    amount: product.price,
+    status: 'WAITING_PAYMENT',
+    payment: { method: 'QRIS_MANUAL', qrImage: '/qris.png' },
+    notice: 'Silakan scan QRIS yang ditampilkan. Pesanan baru diproses setelah pembayaran diperiksa admin.'
+  });
 });
 
 app.get('/api/orders', requireAuth, (req, res) => {
@@ -126,6 +121,15 @@ app.get('/api/admin/summary', requireAuth, requireAdmin, (req, res) => {
   const orders = db.prepare('SELECT COUNT(*) total,COALESCE(SUM(amount),0) gross FROM orders').get();
   const customers = db.prepare("SELECT COUNT(*) n FROM users WHERE role='customer'").get().n;
   res.json({ orders, customers });
+});
+
+app.patch('/api/admin/orders/:invoice/status', requireAuth, requireAdmin, (req, res) => {
+  const allowed = ['WAITING_PAYMENT', 'PAID', 'PROCESSING', 'SUCCESS', 'FAILED'];
+  const status = String(req.body?.status || '');
+  if (!allowed.includes(status)) return res.status(400).json({ error: 'Status pesanan tidak valid.' });
+  const result = db.prepare('UPDATE orders SET status=?,updated_at=CURRENT_TIMESTAMP WHERE invoice=?').run(status, req.params.invoice);
+  if (!result.changes) return res.status(404).json({ error: 'Pesanan tidak ditemukan.' });
+  return res.json({ ok: true, invoice: req.params.invoice, status });
 });
 
 app.get('/api/admin/orders', requireAuth, requireAdmin, (req, res) => {
