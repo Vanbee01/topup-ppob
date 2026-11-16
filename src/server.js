@@ -1,0 +1,38 @@
+require('dotenv').config();
+const express=require('express');
+const session=require('express-session');
+const helmet=require('helmet');
+const rateLimit=require('express-rate-limit');
+const bcrypt=require('bcryptjs');
+const crypto=require('crypto');
+const path=require('path');
+const db=require('./db');
+const payment=require('./payment');
+const app=express();
+const production=process.env.NODE_ENV==='production';
+if(production&&(!process.env.SESSION_SECRET||process.env.SESSION_SECRET.length<32))throw new Error('SESSION_SECRET minimal 32 karakter wajib di production');
+app.set('trust proxy',1);
+app.use(helmet({contentSecurityPolicy:false}));
+app.use(express.json({limit:'32kb'}));
+app.use(session({name:'topup.sid',secret:process.env.SESSION_SECRET||'local-only-secret-change-me',resave:false,saveUninitialized:false,cookie:{httpOnly:true,sameSite:'lax',secure:production,maxAge:12*60*60*1000}}));
+app.use('/api/auth',rateLimit({windowMs:15*60*1000,limit:30,standardHeaders:true,legacyHeaders:false}));
+if(process.env.ADMIN_EMAIL&&process.env.ADMIN_PASSWORD&&!db.prepare("SELECT id FROM users WHERE role='admin' LIMIT 1").get()){
+ db.prepare('INSERT INTO users(name,email,password_hash,role) VALUES(?,?,?,?)').run('Administrator',process.env.ADMIN_EMAIL,bcrypt.hashSync(process.env.ADMIN_PASSWORD,12),'admin');
+}
+const requireAuth=(req,res,next)=>req.session.user?next():res.status(401).json({error:'Silakan login.'});
+const requireAdmin=(req,res,next)=>req.session.user?.role==='admin'?next():res.status(403).json({error:'Akses admin ditolak.'});
+const invoice=()=>`TP${Date.now()}${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+app.get('/health',(req,res)=>res.json({ok:true}));
+app.get('/api/products',(req,res)=>res.json({products:db.prepare('SELECT id,category,provider_code,name,description,price FROM products WHERE active=1 ORDER BY category,id').all()}));
+app.post('/api/auth/register',async(req,res)=>{const {name,email,password}=req.body||{};if(typeof name!=='string'||name.trim().length<2||name.length>60||typeof email!=='string'||!/^\\S+@\\S+\\.\\S+$/.test(email)||typeof password!=='string'||password.length<8||password.length>72)return res.status(400).json({error:'Data pendaftaran tidak valid.'});try{const info=db.prepare('INSERT INTO users(name,email,password_hash) VALUES(?,?,?)').run(name.trim(),email,bcrypt.hashSync(password,12));req.session.user={id:info.lastInsertRowid,name:name.trim(),email,role:'customer'};res.status(201).json({user:req.session.user});}catch(e){res.status(409).json({error:'Email sudah digunakan.'});}});
+app.post('/api/auth/login',async(req,res)=>{const u=db.prepare('SELECT * FROM users WHERE email=? COLLATE NOCASE').get(String(req.body?.email||''));if(!u||!bcrypt.compareSync(String(req.body?.password||''),u.password_hash))return res.status(401).json({error:'Email atau password salah.'});req.session.regenerate(err=>{if(err)return res.status(500).json({error:'Gagal membuat sesi.'});req.session.user={id:u.id,name:u.name,email:u.email,role:u.role};res.json({user:req.session.user});});});
+app.post('/api/auth/logout',(req,res)=>req.session.destroy(()=>res.json({ok:true})));
+app.get('/api/me',(req,res)=>res.json({user:req.session.user||null}));
+app.post('/api/orders',requireAuth,async(req,res)=>{const productId=Number(req.body?.productId),target=String(req.body?.target||'').trim();if(!Number.isInteger(productId)||target.length<3||target.length>100)return res.status(400).json({error:'Data pesanan tidak valid.'});const p=db.prepare('SELECT * FROM products WHERE id=? AND active=1').get(productId);if(!p)return res.status(404).json({error:'Produk tidak ditemukan.'});const inv=invoice();db.prepare('INSERT INTO orders(invoice,user_id,product_id,target,amount) VALUES(?,?,?,?,?)').run(inv,req.session.user.id,p.id,target,p.price);try{const charge=await payment.createPayment({invoice:inv,amount:p.price});res.status(201).json({invoice:inv,payment:charge});}catch(e){res.status(202).json({invoice:inv,amount:p.price,status:'PENDING_PAYMENT',notice:e.message+' Pesanan tersimpan; jangan transfer sebelum gateway aktif.'});}});
+app.get('/api/orders',requireAuth,(req,res)=>res.json({orders:db.prepare('SELECT o.invoice,o.target,o.amount,o.status,o.created_at,p.name product_name FROM orders o JOIN products p ON p.id=o.product_id WHERE o.user_id=? ORDER BY o.id DESC').all(req.session.user.id)}));
+app.get('/api/admin/summary',requireAuth,requireAdmin,(req,res)=>res.json({orders:db.prepare('SELECT COUNT(*) total,COALESCE(SUM(amount),0) gross FROM orders').get(),customers:db.prepare("SELECT COUNT(*) n FROM users WHERE role='customer'").get().n}));
+app.get('/api/admin/orders',requireAuth,requireAdmin,(req,res)=>res.json({orders:db.prepare('SELECT o.*,u.email,p.name product_name FROM orders o JOIN users u ON u.id=o.user_id JOIN products p ON p.id=o.product_id ORDER BY o.id DESC LIMIT 200').all()}));
+app.use(express.static(path.join(__dirname,'../public')));
+app.get('*',(req,res)=>res.sendFile(path.join(__dirname,'../public/index.html')));
+const port=Number(process.env.PORT)||3000;
+app.listen(port,()=>console.log(`TopUpKita listening on ${port}`));
