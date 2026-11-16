@@ -35,3 +35,5 @@
 .selected-product strong{color:var(--gold2);font-size:17px}
 .order-submit{width:100%;padding:15px}
 @media(max-width:600px){.order-dialog{width:100vw;max-width:100vw;max-height:94vh;border-radius:18px 18px 0 0;margin:auto 0 0}.order-dialog form{padding:14px}.order-game-image{width:84px;height:84px}.order-game-hero h2{font-size:21px}.step-heading,.step-heading b{height:48px}.step-heading b{width:48px}.step-heading strong{font-size:16px}.account-fields{gap:9px;padding:12px}.account-fields input{padding:12px 10px;font-size:13px}.game-cover-art{background-position:center 30%}}
+
+#serverWrap[hidden]{display:none}
