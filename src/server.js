@@ -111,20 +111,20 @@ app.post('/api/orders', async (req, res) => {
   });
 });
 
-app.get('/api/orders', requireAuth, (req, res) => {
+app.post('/api/orders/:invoice/paid', (req, res) => {\n  const order = db.prepare('SELECT invoice,status FROM orders WHERE invoice=?').get(req.params.invoice);\n  if (!order) return res.status(404).json({ error: 'Invoice tidak ditemukan.' });\n  if (order.status !== 'WAITING_PAYMENT') return res.status(409).json({ error: 'Pesanan ini sudah dilaporkan atau diproses.' });\n  db.prepare(\"UPDATE orders SET status='PAYMENT_REPORTED',updated_at=CURRENT_TIMESTAMP WHERE invoice=?\").run(order.invoice);\n  return res.json({ ok: true, status: 'PAYMENT_REPORTED', notice: 'Terima kasih. Pembayaran dilaporkan dan sedang menunggu verifikasi admin.' });\n});\n\napp.get('/api/orders', requireAuth, (req, res) => {
   const orders = db.prepare('SELECT o.invoice,o.target,o.amount,o.status,o.created_at,p.name product_name FROM orders o JOIN products p ON p.id=o.product_id WHERE o.user_id=? ORDER BY o.id DESC')
     .all(req.session.user.id);
   res.json({ orders });
 });
 
-app.get('/api/admin/summary', requireAuth, requireAdmin, (req, res) => {
+app.get('/api/receipt/:invoice', (req, res) => {\n  const order = db.prepare(`SELECT o.invoice,o.target,o.amount,o.status,o.created_at,o.updated_at,p.name product_name FROM orders o JOIN products p ON p.id=o.product_id WHERE o.invoice=?`).get(req.params.invoice);\n  if (!order) return res.status(404).send('Invoice tidak ditemukan.');\n  const esc = value => String(value ?? '').replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));\n  const rupiah = new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',maximumFractionDigits:0}).format(order.amount);\n  res.type('html').send(`<!doctype html><html lang=\"id\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Resi ${esc(order.invoice)} — TopUpKita</title><style>body{font:16px system-ui;background:#f4f4f4;padding:24px;color:#222}.receipt{max-width:520px;margin:30px auto;background:white;padding:28px;border-radius:16px;box-shadow:0 4px 24px #0001}h1{margin-top:0}.row{display:flex;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid #eee}.muted{color:#777}.status{font-weight:700;color:#8a6500}button{padding:12px 18px;border:0;border-radius:8px;background:#222;color:white;cursor:pointer}@media print{body{background:white}.receipt{box-shadow:none}}</style><main class=\"receipt\"><h1>TopUpKita</h1><p class=\"muted\">Resi / Bukti Pesanan</p><div class=\"row\"><span>Invoice</span><b>${esc(order.invoice)}</b></div><div class=\"row\"><span>Produk</span><b>${esc(order.product_name)}</b></div><div class=\"row\"><span>ID Tujuan</span><b>${esc(order.target)}</b></div><div class=\"row\"><span>Total</span><b>${rupiah}</b></div><div class=\"row\"><span>Status</span><b class=\"status\">${esc(order.status)}</b></div><div class=\"row\"><span>Dibuat</span><b>${esc(order.created_at)}</b></div><p class=\"muted\">Resi ini adalah bukti pesanan, bukan bukti bahwa pembayaran telah terverifikasi atau produk telah dikirim.</p><button onclick=\"window.print()\">Cetak / Simpan PDF</button></main></html>`);\n});\n\napp.get('/api/admin/summary', requireAuth, requireAdmin, (req, res) => {
   const orders = db.prepare('SELECT COUNT(*) total,COALESCE(SUM(amount),0) gross FROM orders').get();
   const customers = db.prepare("SELECT COUNT(*) n FROM users WHERE role='customer'").get().n;
   res.json({ orders, customers });
 });
 
 app.patch('/api/admin/orders/:invoice/status', requireAuth, requireAdmin, (req, res) => {
-  const allowed = ['WAITING_PAYMENT', 'PAID', 'PROCESSING', 'SUCCESS', 'FAILED'];
+  const allowed = ['WAITING_PAYMENT', 'PAYMENT_REPORTED', 'PAID', 'PROCESSING', 'SUCCESS', 'FAILED'];
   const status = String(req.body?.status || '');
   if (!allowed.includes(status)) return res.status(400).json({ error: 'Status pesanan tidak valid.' });
   const result = db.prepare('UPDATE orders SET status=?,updated_at=CURRENT_TIMESTAMP WHERE invoice=?').run(status, req.params.invoice);
