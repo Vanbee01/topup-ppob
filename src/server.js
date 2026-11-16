@@ -17,7 +17,10 @@ app.use(express.json({limit:'32kb'}));
 app.use(session({name:'topup.sid',secret:process.env.SESSION_SECRET||'local-only-secret-change-me',resave:false,saveUninitialized:false,cookie:{httpOnly:true,sameSite:'lax',secure:production,maxAge:12*60*60*1000}}));
 app.use('/api/auth',rateLimit({windowMs:15*60*1000,limit:30,standardHeaders:true,legacyHeaders:false}));
 if(process.env.ADMIN_EMAIL&&process.env.ADMIN_PASSWORD&&!db.prepare("SELECT id FROM users WHERE role='admin' LIMIT 1").get()){
- db.prepare('INSERT INTO users(name,email,password_hash,role) VALUES(?,?,?,?)').run('Administrator',process.env.ADMIN_EMAIL,bcrypt.hashSync(process.env.ADMIN_PASSWORD,12),'admin');
+ const existing=db.prepare('SELECT id FROM users WHERE email=? COLLATE NOCASE').get(process.env.ADMIN_EMAIL);
+ const passwordHash=bcrypt.hashSync(process.env.ADMIN_PASSWORD,12);
+ if(existing) db.prepare("UPDATE users SET name='Administrator',password_hash=?,role='admin' WHERE id=?").run(passwordHash,existing.id);
+ else db.prepare('INSERT INTO users(name,email,password_hash,role) VALUES(?,?,?,?)').run('Administrator',process.env.ADMIN_EMAIL,passwordHash,'admin');
 }
 const requireAuth=(req,res,next)=>req.session.user?next():res.status(401).json({error:'Silakan login.'});
 const requireAdmin=(req,res,next)=>req.session.user?.role==='admin'?next():res.status(403).json({error:'Akses admin ditolak.'});
@@ -33,6 +36,7 @@ app.get('/api/orders',requireAuth,(req,res)=>res.json({orders:db.prepare('SELECT
 app.get('/api/admin/summary',requireAuth,requireAdmin,(req,res)=>res.json({orders:db.prepare('SELECT COUNT(*) total,COALESCE(SUM(amount),0) gross FROM orders').get(),customers:db.prepare("SELECT COUNT(*) n FROM users WHERE role='customer'").get().n}));
 app.get('/api/admin/orders',requireAuth,requireAdmin,(req,res)=>res.json({orders:db.prepare('SELECT o.*,u.email,p.name product_name FROM orders o JOIN users u ON u.id=o.user_id JOIN products p ON p.id=o.product_id ORDER BY o.id DESC LIMIT 200').all()}));
 app.use(express.static(path.join(__dirname,'../public')));
+app.get('/admin',(req,res)=>res.sendFile(path.join(__dirname,'../public/admin.html')));
 app.get('*',(req,res)=>res.sendFile(path.join(__dirname,'../public/index.html')));
 const port=Number(process.env.PORT)||3000;
 app.listen(port,()=>console.log(`TopUpKita listening on ${port}`));
