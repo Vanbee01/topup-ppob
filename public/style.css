@@ -37,3 +37,21 @@
 @media(max-width:600px){.order-dialog{width:100vw;max-width:100vw;max-height:94vh;border-radius:18px 18px 0 0;margin:auto 0 0}.order-dialog form{padding:14px}.order-game-image{width:84px;height:84px}.order-game-hero h2{font-size:21px}.step-heading,.step-heading b{height:48px}.step-heading b{width:48px}.step-heading strong{font-size:16px}.account-fields{gap:9px;padding:12px}.account-fields input{padding:12px 10px;font-size:13px}.game-cover-art{background-position:center 30%}}
 
 #serverWrap[hidden]{display:none}
+
+
+/* Nominal picker inspired by the supplied Oura Store reference */
+#gamesList.nominal-groups{display:block;background:#41474c;border:1px solid #50575d;border-radius:18px;padding:18px 16px;box-shadow:0 8px 24px #0002}
+.nominal-group-title{font:700 21px 'Roboto Condensed',sans-serif;margin:4px 0 16px;color:#f5f5f3}
+.nominal-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px 14px;margin-bottom:28px}
+.nominal-grid:last-child{margin-bottom:4px}
+.nominal-card{display:flex;flex-direction:column;min-width:0;text-align:left;padding:0;overflow:hidden;background:#5c636a;border:1px solid #727a81;border-radius:17px;color:#f5f5f4;box-shadow:0 2px 0 #30363a;transition:transform .15s,border-color .15s}
+.nominal-card:hover{transform:translateY(-2px);border-color:var(--gold2)}
+.nominal-main{display:flex;align-items:center;gap:10px;padding:15px 13px 13px;min-height:98px}
+.nominal-gem{width:44px;height:44px;flex:none;display:grid;place-items:center;font-size:29px;filter:drop-shadow(0 2px 3px #0005)}
+.nominal-info{display:flex;flex-direction:column;gap:8px;min-width:0}
+.nominal-info strong{font:700 16px/1.25 'Roboto Condensed',sans-serif;overflow-wrap:anywhere}
+.nominal-price{font:700 17px 'Roboto Condensed',sans-serif;color:#d0b28a}
+.nominal-foot{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-height:43px;padding:7px 12px;background:linear-gradient(180deg,#454b50,#353b40);border-top:1px solid #747b80;color:#dce2df;font-size:10px;font-weight:700}
+.nominal-arrow{display:grid;place-items:center;width:23px;height:23px;border-radius:6px;background:#f5f5f2;color:#384b43;font-size:21px;line-height:1}
+#ppobList .nominal-card{width:100%}
+@media(max-width:600px){#gamesList.nominal-groups{padding:15px 12px;border-radius:16px}.nominal-group-title{font-size:19px;margin-bottom:13px}.nominal-grid{gap:11px 10px;margin-bottom:24px}.nominal-main{min-height:94px;padding:12px 9px;gap:7px}.nominal-gem{width:34px;height:38px;font-size:24px}.nominal-info strong{font-size:14px}.nominal-price{font-size:16px}.nominal-foot{min-height:39px;padding:6px 9px;font-size:9px}}
