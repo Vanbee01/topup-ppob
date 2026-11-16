@@ -10,10 +10,10 @@
 - Guest checkout is the default; sign-in is optional and only needed for account history.
 - One game context per product selection. A denomination list is always filtered to one game.
 - The backend is authoritative for product availability and price.
-- Payment success and fulfilment success are separate facts and separate state transitions.
+- Payment success and manual top-up completion are separate facts and separate state transitions.
 - A customer-facing invoice is not proof of payment or delivery.
-- Provider-specific fields, signatures, SKU mappings, and callbacks remain adapter contracts until a real provider is selected and tested.
-- The current seeded catalogue is demo data, not live stock or supplier pricing.
+- Payment-provider fields, signatures, and callbacks remain adapter contracts until a real provider is selected and tested.
+- The current seeded catalogue is demo data, not confirmed live pricing.
 
 ## 2. Roles and navigation
 
@@ -42,11 +42,11 @@ flowchart TD
   J --> K[Await verified server webhook]
   K --> L{Payment verified?}
   L -- No --> M[Pending / failed / expired]
-  L -- Yes --> N[Queue supplier fulfilment]
-  N --> O{Supplier result}
-  O -- Success --> P[Order successful]
-  O -- Failed --> Q[Manual review / eligible retry]
-  O -- Pending or unknown --> R[Reconcile; do not blindly retry]
+  L -- Yes --> N[Set order to waiting for admin]
+  N --> O[Admin performs top-up manually]
+  O --> P{Delivery confirmed?}
+  P -- Yes --> Q[Admin marks successful]
+  P -- No --> R[Admin records failure / review]
   M --> S[Secure invoice status lookup]
   P --> S
   Q --> S
@@ -108,9 +108,9 @@ Wireframes are structural, not final pixel-perfect artwork. Preserve the existin
 ### 5.5 Admin dashboard
 - KPI cards: orders, gross order value, customer count; label demo metrics clearly.
 - Search and filters: invoice, date, game, status.
-- Order detail: target fields, amount, payment reference, supplier reference, status history, timestamps.
-- Catalogue management: games, products, active state, price, supplier SKU mapping.
-- Integration health: last webhook, supplier response, error queue; secrets are masked and never returned to browser.
+- Order detail: target fields, amount, payment reference, admin processing notes, status history, timestamps.
+- Catalogue management: games, products, active state, and selling price.
+- Integration health: last payment webhook, verification errors, and pending manual-processing queue; secrets are masked and never returned to browser.
 - Manual actions require role authorization, evidence, reason, and audit event.
 
 ## 6. Logical data model
@@ -124,7 +124,7 @@ erDiagram
   ORDERS ||--|{ ORDER_ITEMS : includes
   PRODUCTS ||--o{ ORDER_ITEMS : selected_as
   ORDERS ||--o{ PAYMENTS : has
-  ORDERS ||--o{ FULFILLMENT_ATTEMPTS : triggers
+  ORDERS ||--o{ MANUAL_PROCESSING_LOGS : records
   ORDERS ||--o{ ORDER_STATUS_HISTORY : records
   USERS ||--o{ ADMIN_AUDIT_LOGS : performs
   ORDERS ||--o{ ADMIN_AUDIT_LOGS : concerns
@@ -182,14 +182,12 @@ erDiagram
     string raw_event_hash
     datetime verified_at
   }
-  FULFILLMENT_ATTEMPTS {
+  MANUAL_PROCESSING_LOGS {
     int id PK
     int order_id FK
-    string supplier
-    string supplier_reference
-    string sku
+    int admin_user_id FK
     string status
-    string response_summary
+    string notes
     datetime created_at
   }
   ORDER_STATUS_HISTORY {
@@ -216,7 +214,7 @@ erDiagram
 - Destination data belongs to the order item and is treated as sensitive operational data.
 - Store only the minimum customer contact data needed for receipts/verification.
 - Never store card data or payment credentials.
-- Preserve provider/supplier event IDs and hashes for deduplication and reconciliation.
+- Preserve payment-provider event IDs and hashes for deduplication and reconciliation.
 - Monetary values are integer IDR (rupiah), not floating point.
 - A product belongs to exactly one game (PPOB items use a separate category/service model or a nullable game relation with explicit type).
 
@@ -229,22 +227,23 @@ stateDiagram-v2
   PENDING_PAYMENT --> EXPIRED: provider expiry
   PENDING_PAYMENT --> CANCELLED: allowed cancellation
   PENDING_PAYMENT --> FAILED: confirmed payment failure
-  PAID --> PROCESSING: fulfilment queued
-  PROCESSING --> SUCCESS: supplier confirms success
-  PROCESSING --> MANUAL_REVIEW: ambiguous / timeout / mismatch
-  PROCESSING --> FAILED: supplier confirms failure
-  MANUAL_REVIEW --> PROCESSING: reconciled and safe retry
-  MANUAL_REVIEW --> SUCCESS: supplier confirms delivery
-  MANUAL_REVIEW --> FAILED: supplier confirms failure
+  PAID --> WAITING_ADMIN: payment verified
+  WAITING_ADMIN --> PROCESSING: admin starts manual top-up
+  PROCESSING --> SUCCESS: admin confirms delivery
+  PROCESSING --> MANUAL_REVIEW: delivery uncertain
+  PROCESSING --> FAILED: admin confirms unable to deliver
+  MANUAL_REVIEW --> PROCESSING: admin resumes after review
+  MANUAL_REVIEW --> SUCCESS: delivery confirmed
+  MANUAL_REVIEW --> FAILED: unable to deliver
   SUCCESS --> REFUND_PENDING: approved refund request
   REFUND_PENDING --> REFUNDED: provider confirms refund
 ```
 
 Rules:
 - Only a verified provider webhook or provider API reconciliation may transition payment to `PAID`.
-- Only a supplier-confirmed result may transition fulfilment to `SUCCESS`.
+- Only an authorized admin confirmation, backed by actual delivery verification, may transition manual fulfilment to `SUCCESS`.
 - A customer redirect/return URL never changes payment state.
-- Unknown supplier outcomes enter manual review and must be reconciled before retry.
+- Uncertain manual processing enters review; admin must verify the game account/order before attempting again.
 - All transitions are transactional and append a status-history record.
 
 ## 8. API contract (target)
@@ -259,7 +258,6 @@ Rules:
 | POST | `/api/orders/:invoice/verify` | Verify guest lookup token/contact | Public, rate-limited |
 | GET | `/api/orders` | Optional signed-in order history | Customer |
 | POST | `/api/payments/webhook/:provider` | Verify and process provider event | Provider signature |
-| POST | `/api/suppliers/webhook/:supplier` | Verify supplier callback | Supplier signature |
 | GET | `/api/admin/summary` | Dashboard metrics | Admin |
 | GET | `/api/admin/orders` | Search/filter orders | Admin |
 | GET | `/api/admin/orders/:invoice` | Order detail + history | Admin |
@@ -275,11 +273,10 @@ For the current prototype, some routes above are target contracts and are not ye
 3. Provider response is stored; customer sees the provider's payment instructions.
 4. Provider calls the webhook endpoint.
 5. Backend verifies signature, amount, invoice, event freshness, and duplicate event ID.
-6. In one transaction, payment is marked paid and an outbox/fulfilment job is recorded.
-7. Worker sends the mapped SKU and exact destination fields to supplier.
-8. Supplier callback or status query is authenticated and reconciled.
-9. Order is marked successful only on supplier confirmation.
-10. Customer status lookup shows the latest state and safe status history.
+6. In one transaction, payment is marked paid and the order moves to `WAITING_ADMIN`.
+7. Admin reviews the paid order and manually processes the game top-up using the operator's authorized channel.
+8. Admin records the outcome and supporting note; the order is marked successful only after delivery is confirmed.
+9. Customer status lookup shows payment and manual-processing status separately.
 
 Provider adapters must be disabled by default until credentials, webhook validation, sandbox tests, SKU mapping, and reconciliation are complete.
 
@@ -293,7 +290,7 @@ Provider adapters must be disabled by default until credentials, webhook validat
 - Verify webhook signatures and reject replayed/duplicate events.
 - Keep API secrets in server environment variables; never expose them to frontend bundles or logs.
 - Back up the SQLite database and WAL safely; test restore. For scale/high write concurrency, plan migration to managed PostgreSQL.
-- Monitor health endpoint, deployment state, failed payment events, supplier timeouts, and manual-review queue.
+- Monitor health endpoint, deployment state, failed payment events, and orders waiting for manual processing.
 
 ## 11. Current implementation delta
 
@@ -303,7 +300,7 @@ The existing prototype does not yet satisfy the full target design:
 - Guest order insertion is intended, but the existing database migration and order routes require automated verification.
 - Invoice lookup with a guest verification factor is not yet implemented.
 - Payment adapter is disabled; no signed payment webhook is configured.
-- Fulfilment remains manual/stubbed; no live supplier callback is configured.
+- Manual fulfilment workflow and admin completion action still need implementation.
 - Admin currently has summary and order-list views; catalogue editing, order detail, filters, and audit trail are future work.
 - Existing remote artwork URLs must be checked for availability and usage rights before production.
 
@@ -312,9 +309,9 @@ The existing prototype does not yet satisfy the full target design:
 - Customer and admin journeys are documented.
 - Home, game selection, checkout, invoice, and admin structures are specified.
 - Guest-order data model and state machine are defined.
-- Payment verification is explicitly separated from supplier fulfilment.
+- Payment verification is explicitly separated from admin-managed manual top-up processing.
 - API target contracts and security boundaries are documented.
-- Provider-specific integrations remain disabled until selected and verified.
+- Payment-provider integration remains disabled until a provider is selected and verified.
 
 ## 13. Next phase
 
