@@ -12,6 +12,17 @@ CREATE TABLE IF NOT EXISTS products(id INTEGER PRIMARY KEY,category TEXT NOT NUL
 CREATE TABLE IF NOT EXISTS orders(id INTEGER PRIMARY KEY,invoice TEXT UNIQUE NOT NULL,user_id INTEGER NOT NULL REFERENCES users(id),product_id INTEGER NOT NULL REFERENCES products(id),target TEXT NOT NULL,amount INTEGER NOT NULL,status TEXT NOT NULL DEFAULT 'PENDING_PAYMENT',payment_reference TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
 `);
 
+// Allow checkout as guest: make orders.user_id nullable on existing databases.
+const orderColumns=db.prepare('PRAGMA table_info(orders)').all();
+if(orderColumns.some(c=>c.name==='user_id'&&c.notnull===1)){
+ db.pragma('foreign_keys = OFF');
+ db.exec(`CREATE TABLE orders_guest_migration(id INTEGER PRIMARY KEY,invoice TEXT UNIQUE NOT NULL,user_id INTEGER REFERENCES users(id),product_id INTEGER NOT NULL REFERENCES products(id),target TEXT NOT NULL,amount INTEGER NOT NULL,status TEXT NOT NULL DEFAULT 'PENDING_PAYMENT',payment_reference TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
+ INSERT INTO orders_guest_migration SELECT id,invoice,user_id,product_id,target,amount,status,payment_reference,created_at,updated_at FROM orders;
+ DROP TABLE orders;
+ ALTER TABLE orders_guest_migration RENAME TO orders;`);
+ db.pragma('foreign_keys = ON');
+}
+
 // Katalog demo diperluas. Harga hanya contoh sampai supplier resmi terhubung.
 const add=db.prepare('INSERT OR IGNORE INTO products(category,provider_code,name,description,price) VALUES(?,?,?,?,?)');
 const demo='Harga simulasi untuk tampilan katalog; transaksi otomatis belum aktif.';
