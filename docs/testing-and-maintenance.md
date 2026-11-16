@@ -20,7 +20,7 @@
 - Browser-level mobile/desktop layout, all game cards, and third-party artwork availability/usage rights.
 - Secure invoice lookup (not implemented yet).
 - Real payment webhook signature verification and duplicate-event handling (provider not selected).
-- Supplier fulfilment, callback, retries, and reconciliation (supplier not selected).
+- Admin manual top-up completion flow and audit history.
 - Backup restoration and disaster-recovery timing.
 
 Do not treat an unexecuted test as passed. A successful container start is not equivalent to successful checkout or live delivery.
@@ -38,7 +38,7 @@ Do not treat an unexecuted test as passed. A successful container start is not e
 | T-07 | GET `/api/admin/orders` as admin | Rows include guest orders as “Pesanan tamu” | SQL syntax corrected; runtime test pending |
 | T-08 | Duplicate order submit | No duplicate fulfilment | Idempotency protection not yet implemented |
 | T-09 | Payment webhook | Verify signature, amount, invoice, event uniqueness | Not implemented; provider unselected |
-| T-10 | Supplier callback | Authenticated, reconciled supplier result | Not implemented; supplier unselected |
+| T-10 | Admin manual completion | Only authorized admin can record top-up result; changes are audited | Not implemented yet |
 
 ## 3. Release checklist
 
@@ -57,8 +57,8 @@ Before every production release:
 
 ### Every day / when orders are enabled
 - Review service health, recent deployment status, failed requests, and application errors.
-- Reconcile pending payments and supplier transactions against provider dashboards.
-- Investigate every ambiguous supplier response before retrying.
+- Reconcile pending payments against the payment gateway dashboard.
+- Review paid orders waiting for manual processing and investigate delayed orders.
 
 ### Weekly
 - Review failed login/order attempts and rate-limit events.
@@ -70,7 +70,7 @@ Before every production release:
 - Create and verify a database backup; perform a restore test in a separate environment.
 - Review admin accounts and rotate credentials when needed.
 - Update dependencies after reviewing breaking changes and security advisories.
-- Review integration contracts, fees, supplier SKU mappings, and support/refund procedures.
+- Review payment gateway integration, fees, and support/refund procedures.
 
 ## 5. Backup and recovery
 
@@ -87,8 +87,8 @@ Before every production release:
 2. Implement idempotency keys for order creation and webhook processing.
 3. Implement secure guest invoice lookup using a high-entropy verification token (store only its hash).
 4. Select and configure a payment provider; verify signatures, amount, invoice, replay protection, expiry, refunds, and sandbox behavior.
-5. Select and configure a legitimate supplier; confirm game-specific fields, SKU mapping, balance, callbacks, duplicate protection, and reconciliation.
-6. Add a durable fulfilment queue/outbox and manual-review workflow.
+5. Implement the admin manual-processing workflow with role checks, audit history, and safe status transitions.
+6. Define manual processing hours, operator responsibility, and customer delay/notification policy.
 7. Confirm legal operator identity, support contact, privacy notice, terms, and refund policy.
 8. Replace illustrative prices/catalogue with supplier-verified SKUs and prices.
 9. Verify authorized artwork sources and remove broken or unlicensed images.
@@ -96,4 +96,4 @@ Before every production release:
 
 ## 7. Maintenance status
 
-The application is deployed and starts successfully, but it remains a demo/prototype for catalogue browsing and order capture. Payment processing and automatic top-up delivery are not enabled. Keep the demo notice visible until all production blockers above have been resolved and verified.
+The application is deployed and starts successfully, but it remains a demo/prototype for catalogue browsing and order capture. Payment processing is not enabled, and top-up completion is manual. Keep the demo notice visible until gateway integration and the manual admin workflow have been implemented and verified.
